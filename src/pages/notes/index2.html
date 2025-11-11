@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Granite Guardian：全面守护 LLM 的风险检测 — 论文深度解读</title>
+  <!-- Apple-like aesthetic: San Francisco approximation via system fonts -->
+  <style>
+    :root{
+      --bg:#f6f7f8; --card:#ffffff; --muted:#6b6f76; --accent:#0a84ff;
+      --radius:18px; --glass: rgba(255,255,255,0.6);
+    }
+    html,body{height:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans',sans-serif;color:#111;background:linear-gradient(180deg,#eef2f6 0%,var(--bg) 100%);}
+    header{display:flex;align-items:center;justify-content:space-between;padding:36px 48px}
+    .brand{display:flex;gap:16px;align-items:center}
+    .logo{width:64px;height:64px;border-radius:14px;background:linear-gradient(135deg,#0a84ff,#5ac8fa);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:24px;box-shadow:0 6px 20px rgba(10,132,255,0.18)}
+    h1{font-size:22px;margin:0}
+    .meta{color:var(--muted);font-size:13px}
+    main{display:grid;grid-template-columns: 360px 1fr;gap:28px;padding:0 48px 80px}
+    nav{position:sticky;top:28px;height:calc(100vh - 56px)}
+    .toc{background:var(--card);border-radius:14px;padding:18px;box-shadow:0 6px 20px rgba(27,31,35,0.06)}
+    .toc h3{margin:0 0 8px 0}
+    .toc a{display:block;padding:10px;border-radius:10px;color:#0a2747;text-decoration:none;margin-bottom:6px}
+    .toc a:hover{background:#f1f5fb}
+    .card{background:var(--card);border-radius:18px;padding:28px;box-shadow:0 10px 30px rgba(16,24,40,0.06)}
+    section{margin-bottom:20px}
+    .muted{color:var(--muted)}
+    pre{background:#0f1724;color:#e6eef8;padding:12px;border-radius:10px;overflow:auto}
+    .figure{border:1px dashed #e6edf6;padding:20px;border-radius:12px;text-align:center;color:var(--muted)}
+    table.ltx{width:100%;border-collapse:collapse;margin-top:12px}
+    table.ltx td, table.ltx th{border:1px solid #e9eef6;padding:8px;text-align:center}
+    .keypoint{background:linear-gradient(90deg,#fff 0%,#f7fbff 100%);border-left:4px solid var(--accent);padding:14px;border-radius:10px;margin:12px 0}
+    footer{padding:24px 48px;color:var(--muted);font-size:13px}
+    .small{font-size:13px}
+    .code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#f3f6fb;padding:6px 8px;border-radius:8px}
+    /* Responsive */
+    @media (max-width:900px){main{grid-template-columns:1fr;padding:0 18px}nav{position:relative;height:auto;margin-bottom:12px}}
+  </style>
+  <!-- KaTeX for LaTeX rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/contrib/auto-render.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo">GG</div>
+      <div>
+        <h1>Granite Guardian — 论文深度解读</h1>
+        <div class="meta">Inkit Padhi et al., NAACL 2025 (Industry). 本页为论文内容的中文解析、公式渲染与可复现指南。</div>
+      </div>
+    </div>
+    <div class="meta small">生成：面向复现与工程落地的单页技术说明</div>
+  </header>
+
+  <main>
+    <nav>
+      <div class="toc">
+        <h3>目录</h3>
+        <a href="#motivation">研究动机 & 贡献</a>
+        <a href="#taxonomy">风险分类与 Task 定义</a>
+        <a href="#datasets">数据集（人工注释 + 合成）</a>
+        <a href="#model">模型架构与训练细节</a>
+        <a href="#math">数学表示与概率计算</a>
+        <a href="#experiments">实验设计与复现细节</a>
+        <a href="#results">实验结果与核心结论</a>
+        <a href="#figures">Figures / Tables 占位</a>
+        <a href="#review">评论（Reviewer-style）</a>
+        <a href="#appendix">附录：可复现清单</a>
+      </div>
+    </nav>
+
+    <section>
+      <div class="card">
+        <section id="motivation">
+          <h2>研究动机与核心贡献</h2>
+          <p>本文关注的核心问题是：当将大型语言模型（LLM）部署到真实应用中时，如何在<span class="code">prompt</span>（用户输入）与<span class="code">response</span>（模型输出）层面自动检测并缓解多种安全风险（包括<strong>有害内容</strong>、<strong>越狱</strong>、以及在<span class="code">RAG</span>（检索增强生成）场景下的<span class="code">groundedness / context relevance / answer relevance</span>等）。</p>
+          <div class="keypoint">
+            <strong>为什么重要？</strong> 真实系统同时面对大量风险维度：简单的毒性检测不够，RAG 中的“看似合理但与证据不一致”的幻觉（hallucination）也必须检测；越狱（jailbreak）与对抗性提示需要更强鲁棒性与合成数据支持。
+          </div>
+
+          <p>主要贡献（原文归纳）：</p>
+          <ol>
+            <li>首次将 RAG 三元组（context relevance、groundedness、answer relevance）与通用的 harm / jailbreak 检测统一到单一模型系列（Granite Guardian，2B / 8B）。</li>
+            <li>构建了混合数据集（高质量人工标注 + 系统性合成数据 + jailbreaking 专门生成）以提高对抗鲁棒性。</li>
+            <li>提出了一个更鲁棒的概率计算方法（在 token-level 汇聚多种“yes/no”变体的 logit），提高判定稳定性。</li>
+          </ol>
+        </section>
+
+        <section id="taxonomy">
+          <h2>风险分类（Risk Taxonomy）</h2>
+          <p>论文使用两大类：<strong>Harm（伤害）</strong> 与 <strong>RAG Triad（检索相关性三元组）</strong>。<br>
+          Harm 下含子类：social-bias、jailbreaking、violence、profanity、sexual content、unethical behavior，以及 AI refusal / others。</p>
+
+          <p class="muted">设计要点：</p>
+          <ul>
+            <li>对 prompt 与 response 均可检测（通过模板把 prompt/response 对齐为 user/assistant 两个角色）。</li>
+            <li>为每个风险定义一个自然语言的判断准则（risk definition），模型生成 Yes/No。</li>
+          </ul>
+        </section>
+
+        <section id="datasets">
+          <h2>数据集（详尽）</h2>
+          <h3>人工标注数据（Human annotated）</h3>
+          <p>来源：Anthropic 的 harmless human preference data（只保留第一个 turn），论文使用 Granite 与 Mixtral model 生成 assistant responses，然后由 DataForce 注释。</p>
+          <ul>
+            <li>获得约 7,000 个 (prompt, response) 对并做三人注释（majority/relaxed schema 均记录）。</li>
+            <li>使用不确定性采样（模型预测 yes/no 概率接近 0.5 的样本）挑选难样本，额外获取约 1,000 个低置信例子用于标注（最终 409 个 assistant=yes 的样本等，作者做了平衡采样）。</li>
+          </ul>
+
+          <h3>合成数据（Synthetic）</h3>
+          <p>两大类合成：<strong>systematic benign & adversarial</strong> 与 <strong>jailbreak 专项</strong>。</p>
+          <ul>
+            <li>使用 mixtral-8x7B & mixtral-8x22B 生成 prompts 与 completions（论文 Appendix D 提供 prompt 细节）。</li>
+            <li>Benign prompts：基于 Röttger et al. 的 10 类模板（例如：figure language、definitions、historical events 等）生成对照样本。</li>
+            <li>Adversarial prompts：建立三层 taxonomy（4 个高层 -> 13 个子类 -> leaf categories），并对典型 harmful prompt 应用 24 种“revision strategies”生成 adversarial 变体（包含单策略与三策略上下文）。</li>
+            <li>Jailbreak：集合 seed 示例 + 自动 red-teaming（TAP / GCG-attack）+ LLM-guided adversarial 扩展。</li>
+          </ul>
+
+          <h3>RAG Triad 数据</h3>
+          <p>基于 HotPotQA、SQuAD v2、MNLI、SNLI 等构建：每个样本为三元组 (c, q, a)。论文通过生成三类负样本：非相关 context、错误 grounding 的答案、与问题不相关的问题，来训练模型区分三类 RAG 风险。</p>
+        </section>
+
+        <section id="model">
+          <h2>模型开发与训练细节</h2>
+          <p>基模型：Granite 3.0 系列（原文提及 Granite-3b-code-instruct、granite-7b-lab 等用于生成训练数据），对 2B 与 8B 变体使用 <strong>Supervised Fine-Tuning (SFT)</strong>。</p>
+
+          <h3>数据格式化与模板</h3>
+          <p>将每个样本转换为带控制 token 的聊天模板（见论文 Figure 1）：
+          <pre>&lt;start_of_turn&gt;User Message : {{ prompt }}
+Assistant Message : {{ response }}
+&lt;end_of_turn&gt;
+&lt;start_of_risk_definition&gt; ... definition ... &lt;end_of_risk_definition&gt;
+</pre>
+          最终模型输入将整个 template（不含 label）作为 user 内容，模型输出要生成 Yes 或 No。</p>
+
+          <h3>超参数（可复现）</h3>
+          <ul>
+            <li>优化器：Adam</li>
+            <li>学习率：$1\times10^{-6}$</li>
+            <li>梯度累积：5 步</li>
+            <li>训练轮数：最多 7 epochs（基于 validation 最小交叉熵 loss 选择 checkpoint）</li>
+            <li>初始化：试验了 base 与 instruct variants；instruct variant 更好</li>
+            <li>输出标签：模型生成文本 'Yes' / 'No'（论文在概率计算上进行强化，见下节）</li>
+          </ul>
+
+          <p class="muted">工程提示：若在你自己的集群上训练 8B 模型，请配置混合精度（fp16）与梯度检查点以降低显存。</p>
+        </section>
+
+        <section id="math">
+          <h2>数学表示与概率计算（LaTeX 渲染）</h2>
+          <p>论文中提出将 token-level 的各种 'Yes' / 'No' 变体的 logits 聚合，以得到更稳定的二分类概率。公式如下（与论文一致）：</p>
+
+          <p>令 $S_{|k}$ 为 top-k tokens 中包含子串 "Yes" 的 token 集合；$U_{|k}$ 为包含 "No" 的 token 集合，$LL(\cdot)$ 表示 token 的 log-likelihood（logit）。则得分：</p>
+
+          <p>\[ \text{score}_{\text{safe}} = \sum_{i\in S_{|k}} \exp(LL(\text{token}_i)) \tag{1} \]</p>
+
+          <p>\[ \text{score}_{\text{unsafe}} = \sum_{i\in U_{|k}} \exp(LL(\text{token}_i)) \tag{2} \]</p>
+
+          <p>随后通过 softmax 归一化得到最终概率：</p>
+
+          <p>\[ P(\text{safe}) = \frac{\text{score}_{\text{safe}}}{\text{score}_{\text{safe}} + \text{score}_{\text{unsafe}}},\quad P(\text{unsafe}) = 1 - P(\text{safe}). \]</p>
+
+          <p>注：论文还提到对匹配时做了 lowercasing 与 stripping，以处理大小写和空白差异。</p>
+
+        </section>
+
+        <section id="experiments">
+          <h2>实验方法与实验设计（可复现要点）</h2>
+          <h3>基线与评估指标</h3>
+          <ul>
+            <li>基线模型：Llama-Guard 系列（1B/2-8B/7B/8B 等）与 ShieldGemma（2B/9B/27B），以及专门的 RAG 模型（WeCheck、MiniCheck）。</li>
+            <li>指标：F1 与 AUC（ROC 面积）。F1 用于正负样本平衡评估，AUC 用于判别能力评估。</li>
+          </ul>
+
+          <h3>测试集（paper uses many）</h3>
+          <ul>
+            <li>Harm prompt datasets: ToxicChat, OpenAI Moderation Evaluation, AegisSafetyTest, SimpleSafetyTests, HarmBench Prompt</li>
+            <li>Prompt/Response harmfulness datasets: BeaverTails Test Set, SafeRLHF Test Set, XSTEST-RESP</li>
+            <li>RAG/groundedness: TRUE benchmark（包含 FRANK, SummEval, MNBM, QACS, PAWS, BEGIN, Q2, DialFact, FEVER, VitaminC 等）</li>
+          </ul>
+
+          <h3>训练 / 验证 / 选择 checkpoint</h3>
+          <p>作者使用 validation set 上的最小交叉熵 loss 作为模型选择准则。训练时保留多类别样本分布平衡，并对每个风险类别均匀赋权。</p>
+
+          <h3>概率阈值与决策</h3>
+          <p>基于上文的概率计算得到 P(safe) 与 P(unsafe)，作者通过 ROC 曲线选择阈值（在报告的 F1 与 AUC 中体现）。实现时建议保存 raw scores 以便后处理（例如调整阈值或置信度校准）。</p>
+
+        </section>
+
+        <section id="results">
+          <h2>实验结果与核心结论</h2>
+
+          <p>论文给出多表对比（Paper Table 1 和 Table 2 为核心）。要点：</p>
+          <ul>
+            <li>在 prompt/response harmfulness 的集合评测中，Granite-Guardian-3.0-8B 在大多数数据集上取得最高或次优的 F1/AUC；2B 版本也表现稳健，在资源受限场景可作为替代。</li>
+            <li>在 TRUE groundedness 基准上，Granite-Guardian-3.0-8B 在平均 AUC 上接近 MiniCheck（MiniCheck 7B 略高），但在多任务（同时处理 harm 与 RAG）情况下仍保持竞争力。</li>
+            <li>结论：通过混合人标 + 合成数据与新的概率聚合策略，可以训练出对越狱与 RAG 幻觉鲁棒的检测器，且可无缝插入任意 LLM 系统作为 guardrail。</li>
+
+          </ul>
+
+          <div class="figure">
+            <strong>Table 占位（Table 1: prompt/response harmfulness F1/AUC）</strong>
+            <p>实际论文表格已嵌入附录；本页下方保留 LaTeX 格式表格（便于检索与渲染）。</p>
+          </div>
+
+          <p class="muted">后续建议：作者已开源模型与 repo（链接见论文），可获取模型 checkpoint 与训练脚本以复现。</p>
+        </section>
+
+        <section id="figures">
+          <h2>Figures / Tables（占位与 LaTeX 表格）</h2>
+
+          <h3>Table 1（LaTeX）</h3>
+          <p>下面以 LaTeX table 的形式给出论文中表格的截取（为可视化搜索与打印友好，请用 MathJax 渲染）：</p>
+
+          <p>$$
+\begin{array}{l|c c c}
+\text{Model} & \text{Prompt F1/AUC} & \text{Response F1/AUC} & \text{Aggregate} \\
+\hline
+\text{Granite-Guardian-3.0-2B} & 0.842/0.844 & 0.744/0.903 & 0.674/0.782 \\
+\text{Granite-Guardian-3.0-8B} & 0.874/0.924 & 0.781/0.919 & 0.758/0.871 \\
+\text{Llama-Guard-7b} & 0.743/0.852 & 0.704/0.816 & 0.659/0.824 \\
+\text{ShieldGemma-27b} & 0.437/0.860 & 0.744/0.748 & 0.438/0.772 \\
+\end{array}
+$$
+
+          <h3>Table 2（TRUE groundedness AUC，简表）</h3>
+          <p>$$
+\begin{array}{l|c}
+\text{Model} & \text{TRUE Avg. AUC} \\
+\hline
+\text{Minicheck 7b} & 0.873 \\
+\text{WeCheck (0.4B)} & 0.850 \\
+\text{Granite-Guardian-3.0-8b} & 0.854 \\
+\text{Granite-Guardian-3.0-2b} & 0.800 \\
+\end{array}
+$$
+
+          <p class="muted">（注：以上表格为论文表格的摘录/精简；若需要精准逐项数字，请查看论文附录或开源仓库）</p>
+
+        </section>
+
+        <section id="review">
+          <h2>我的评论（Reviewer-style）</h2>
+          <h3>优点</h3>
+          <ul>
+            <li>覆盖面广：同时覆盖常见有害内容、越狱以及 RAG 特有问题，工程化程度高。</li>
+            <li>数据策略合理：结合人标、对抗合成与不确定性采样，能够更好地覆盖边界样本。</li>
+            <li>实用性强：提供 2B/8B 不同尺寸，便于工程部署／权衡成本与性能。</li>
+          </ul>
+
+          <h3>不足与可改进处</h3>
+          <ul>
+            <li><strong>跨语言/跨文化泛化</strong>：论文数据多基于英文公开集与 Anthropic 数据，跨语言或文化偏见的泛化能力未充分论证（如果目标是企业级全球部署，这点很重要）。</li>
+            <li><strong>对抗性稳健性边界</strong>：虽然包含合成对抗样本与 jailbreaking 数据，但没有系统给出对抗强度（攻击预算/transferability）的定量评估。</li>
+            <li><strong>可解释性</strong>：模型输出 Yes/No 易于集成，但对错误分类的可视化诊断（为什么被判为 unsafe）可提升运维效率，建议加入 token-level 或 sentence-level 的证据回溯模块。</li>
+          </ul>
+
+          <h3>改进建议</h3>
+          <ol>
+            <li>扩充多语种合成与人标数据；在 benchmark 上加入多语言 RAG 数据集检验泛化。</li>
+            <li>增加对抗性评估基线（例如黑盒/白盒转移攻击强度曲线），并报告在不同攻击强度下的 AUC/F1 曲线。</li>
+            <li>开发可解释的二级判定器：若 primary 判定为 unsafe，则展示触发风险的片段与相似训练样本。此举有助于合规审计与快速修复误报。</li>
+          </ol>
+        </section>
+
+        <section id="appendix">
+          <h2>附录：可复现清单（工程指导）</h2>
+          <ol>
+            <li>数据准备
+              <ul>
+                <li>收集 Anthropic first-turn prompts；用 Granite & Mixtral 等模型生成 assistant responses。</li>
+                <li>合成 benign/adversarial/jailbreak 样例：参考论文所述 taxonomy 与 24 种 revision strategies。</li>
+                <li>为 RAG 构造 (c,q,a) 三元组，使用 HotPotQA / SQuADv2 / MNLI / SNLI 等作为 seed。</li>
+              </ul>
+            </li>
+            <li>训练细节
+              <ul>
+                <li>模型初始化：Granite 3.0 instruct variant。</li>
+                <li>训练：Adam，lr=1e-6，梯度累积=5，最多 7 epochs，选择 val 上最小 cross-entropy checkpoint。</li>
+                <li>输出设为生成 'Yes'/'No' 的 token；记录 top-k logits 用于后续汇聚。</li>
+              </ul>
+            </li>
+            <li>推理部署
+              <ul>
+                <li>在推理时采集 top-k tokens 的 logits，按公式(1)(2) 汇聚并归一化以获得 P(safe)/P(unsafe)。</li>
+                <li>保留 raw score，便于阈值调优与置信度校准。</li>
+              </ul>
+            </li>
+            <li>评估
+              <ul>
+                <li>使用 F1/AUC；对 RAG 使用 TRUE benchmark 的子任务。</li>
+                <li>建议做置信度-召回曲线（precision-recall）与对抗强度评估曲线。</li>
+              </ul>
+            </li>
+          </ol>
+
+          <div class="muted small">提示：作者已开源仓库（论文中给出链接）。若你需要我把复现脚本（训练、eval、inference）写成可直接运行的模板（例如 PyTorch / HuggingFace Trainer 风格），我可以帮你生成。</div>
+        </section>
+
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div>文档说明：本页面为 <strong>机器辅助整理与技术解读</strong>，面向工程复现与学术理解而写。本文档在页面内使用 KaTeX 渲染公式。若你需要我导出为单一文件（index.html）并打包下载脚本，我可以生成可供部署的版本。</div>
+  </footer>
+  
+  <script>
+    // Render KaTeX after all DOM is loaded
+    document.addEventListener("DOMContentLoaded", function () {
+      if (window.renderMathInElement) {
+        renderMathInElement(document.body, {
+          delimiters: [
+            {left: "$$", right: "$$", display: true},      // $$ 显示模式
+            {left: "\\[", right: "\\]", display: true},   // \[...\] 显示模式
+            {left: "\\(", right: "\\)", display: false},  // \(...\) 行内模式
+            {left: "$", right: "$", display: false}        // $...$ 行内模式
+          ],
+          throwOnError: false
+        });
+      } else {
+        console.warn("KaTeX auto-render script not loaded yet.");
+      }
+    });
+  </script>
+</body>
+</html>
