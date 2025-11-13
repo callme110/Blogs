@@ -10,7 +10,9 @@
     <!-- KaTeX for LaTeX rendering -->
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/katex.min.css">
 	<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/katex.min.js"></script>
-	<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/contrib/auto-render.min.js"></script>
+	<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters: [{left: '$$', right: '$$', display: true}, {left: '\\\\[', right: '\\\\]', display: true}, {left: '\\\\(', right: '\\\\)', display: false}, {left: '$', right: '$', display: false}], throwOnError: false});">
+    </script>
    <style>
         /* CSS Reset & Base Styles */
         :root {
@@ -912,28 +914,6 @@
                 } 
             });
         }
-
-        // Render KaTeX after all DOM is loaded and content is in place
-        // This is handled by the defer attribute and onload in the script tag for auto-render.
-        // Make sure to add this configuration if needed for specific rendering behavior
-        document.addEventListener("DOMContentLoaded", function () {
-    if (window.renderMathInElement) {
-        renderMathInElement(document.body, {
-            delimiters: [
-                {left: "$$", right: "$$", display: true},  // $$ 显示模式
-                {left: "\\[", right: "\\]", display: true},  // \[...\] 显示模式
-                {left: "\\(", right: "\\)", display: false}, // \(...\) 行内模式
-                {left: "$", right: "$", display: false}    // <-- 确保这一行是开启的！
-            ],
-            throwOnError: false
-        });
-    } else {
-        console.warn("KaTeX auto-render script not loaded yet.");
-    }
-});
-	
-	
-
     </script>
 </body>
 

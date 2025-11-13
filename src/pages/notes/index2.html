@@ -36,10 +36,8 @@
     /* Responsive */
     @media (max-width:900px){main{grid-template-columns:1fr;padding:0 18px}nav{position:relative;height:auto;margin-bottom:12px}}
   </style>
-  <!-- KaTeX for LaTeX rendering -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/katex.min.css">
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/katex.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.7/dist/contrib/auto-render.min.js"></script>
+  <!-- MathJax for LaTeX rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
   <header>
@@ -200,8 +198,8 @@ Assistant Message : {{ response }}
           </ul>
 
           <div class="figure">
-            <strong>Table 占位（Table 1: prompt/response harmfulness F1/AUC）</strong>
-            <p>实际论文表格已嵌入附录；本页下方保留 LaTeX 格式表格（便于检索与渲染）。</p>
+            <img src="pic/image.png" alt="Prompt/Response harmfulness F1/AUC comparison table" style="max-width:100%;height:auto;">
+            <p>Table 1: prompt 与 response harmfulness 的 F1/AUC 对比。</p>
           </div>
 
           <p class="muted">后续建议：作者已开源模型与 repo（链接见论文），可获取模型 checkpoint 与训练脚本以复现。</p>
@@ -304,26 +302,7 @@ $$
   </main>
 
   <footer>
-    <div>文档说明：本页面为 <strong>机器辅助整理与技术解读</strong>，面向工程复现与学术理解而写。本文档在页面内使用 KaTeX 渲染公式。若你需要我导出为单一文件（index.html）并打包下载脚本，我可以生成可供部署的版本。</div>
+    <div>文档说明：本页面为 <strong>机器辅助整理与技术解读</strong>，面向工程复现与学术理解而写。本文档在页面内使用 MathJax 渲染公式。若你需要我导出为单一文件（index.html）并打包下载脚本，我可以生成可供部署的版本。</div>
   </footer>
-  
-  <script>
-    // Render KaTeX after all DOM is loaded
-    document.addEventListener("DOMContentLoaded", function () {
-      if (window.renderMathInElement) {
-        renderMathInElement(document.body, {
-          delimiters: [
-            {left: "$$", right: "$$", display: true},      // $$ 显示模式
-            {left: "\\[", right: "\\]", display: true},   // \[...\] 显示模式
-            {left: "\\(", right: "\\)", display: false},  // \(...\) 行内模式
-            {left: "$", right: "$", display: false}        // $...$ 行内模式
-          ],
-          throwOnError: false
-        });
-      } else {
-        console.warn("KaTeX auto-render script not loaded yet.");
-      }
-    });
-  </script>
 </body>
 </html>
